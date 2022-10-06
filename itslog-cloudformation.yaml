@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ITS-LOG template. You can deploy it alone or in pairs!
+Parameters:
+  LogBucketName:
+    Type: String
+  # TODO Prefix for logs
+  IamUploaderRoleName:
+    Description: Role that can upload to logs and surveys directories
+    Type: String
+    Default: itslog-upload
+  IamUploaderUsers:
+    Description: List of IAM users that can upload to bucket
+    Type: CommaDelimitedList
+  IamDownloaderRoleName:
+    Description: Role that can list and download logs and surveys
+    Type: String
+    Default: itslog-download
+Resources:
+  Bucket:
+    # Rename to LogBucket
+    Type: AWS::S3::Bucket
+    Description: Stores incoming logs
+    Properties:
+      BucketName:
+        Ref: LogBucketName
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: PruneOldLogs
+            Prefix: itslog/logs/
+            Status: Enabled
+            ExpirationInDays: 7
+            NoncurrentVersionExpirationInDays: 1
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+          - Id: PruneOldSurveys
+            Prefix: itslog/surveys/
+            Status: Enabled
+            ExpirationInDays: 7
+            NoncurrentVersionExpirationInDays: 1
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+# IAM - Role
+# IAM - User
+# SNS
+# Lambda - Logs
+# Lambda - Surveys
+
+# Reference Material
+# - [AWS CloudFormation Docs](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/)
+# - [Resource and Property Reference](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-template-resource-type-ref.html)
