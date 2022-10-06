@@ -1,28 +1,48 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: ITS-LOG template. You can deploy it alone or in pairs!
 Parameters:
+  # RESEARCH: Is it possible to create multiple recipients (one subscription each)
+  # Looks like a nested stack is required https://stackoverflow.com/a/50063297
+  NotificationRecipient:
+    Description: Recipient for Log Bundle and Survey upload notification emails
+    Type: String
   LogBucketName:
     Type: String
-  # TODO Prefix for logs
+  LogBucketPrefix:
+    Description: Prefix for ITS-LOG uploaded content
+    Type: String
+    Default: itslog
   IamUploaderRoleName:
     Description: Role that can upload to logs and surveys directories
     Type: String
     Default: itslog-upload
   IamUploaderUsers:
-    Description: List of IAM users that can upload to bucket
+    Description: List of IAM users that can upload to bucket.
     Type: CommaDelimitedList
   IamDownloaderRoleName:
-    Description: Role that can list and download logs and surveys
+    Description: Role that can list and download logs and surveys.
     Type: String
     Default: itslog-download
 Resources:
-  Bucket:
-    # Rename to LogBucket
+  UploadNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: ITS-LOG Upload Notification
+      FifoTopic: False
+  UploadNotificationMail:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint:
+        Ref: NotificationRecipient
+      Protocol: email
+      TopicArn: !Ref 'UploadNotificationTopic'
+  ItsLogBucket:
     Type: AWS::S3::Bucket
     Description: Stores incoming logs
     Properties:
       BucketName:
         Ref: LogBucketName
+      # NotificationConfiguration:
       AccessControl: Private
       PublicAccessBlockConfiguration:
         BlockPublicAcls: True
@@ -32,14 +52,18 @@ Resources:
       LifecycleConfiguration:
         Rules:
           - Id: PruneOldLogs
-            Prefix: itslog/logs/
+            Prefix: !Sub
+              - '${Prefix}/logs/'
+              - Prefix: !Ref LogBucketPrefix
             Status: Enabled
             ExpirationInDays: 7
             NoncurrentVersionExpirationInDays: 1
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 1
           - Id: PruneOldSurveys
-            Prefix: itslog/surveys/
+            Prefix: !Sub
+              - '${Prefix}/surveys/'
+              - Prefix: !Ref LogBucketPrefix
             Status: Enabled
             ExpirationInDays: 7
             NoncurrentVersionExpirationInDays: 1
