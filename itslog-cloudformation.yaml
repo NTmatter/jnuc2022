@@ -63,7 +63,16 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 # Is this the right type of object?
+                # No, this is the log group for the Lambda.
+                # Need to generate a unique name and tie to the group instead.
                 Resource: !Ref 'UploadNotificationTopic'
+        - PolicyName: ReadFromLogsBucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Ref 'ItsLogBucket'
   # UploadedLogHandler:
   #   Type: AWS::Lambda::Function
   #   Properties:
