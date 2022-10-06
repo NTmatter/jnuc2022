@@ -12,10 +12,6 @@ Parameters:
     Description: Prefix for ITS-LOG uploaded content
     Type: String
     Default: itslog
-  NotifierRoleName:
-    Description: Name of role for notification Lambda functions
-    Type: String
-    Default: itslog-sns-s3
   IamUploaderRoleName:
     Description: Role that can upload to logs and surveys directories
     Type: String
@@ -27,6 +23,7 @@ Parameters:
     Description: Role that can list and download logs and surveys.
     Type: String
     Default: itslog-download
+
 Resources:
   UploadNotificationTopic:
     Type: AWS::SNS::Topic
@@ -46,7 +43,6 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       Description: Read-only access to bucket subdirectories and SNS topic
-      # RoleName: !Ref 'NotifierRoleName'
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
