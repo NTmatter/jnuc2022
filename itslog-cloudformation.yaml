@@ -6,23 +6,29 @@ Parameters:
   NotificationRecipient:
     Description: Recipient for Log Bundle and Survey upload notification emails
     Type: String
+
   LogBucketName:
     Type: String
+
   LogBucketPrefix:
     Description: Prefix for ITS-LOG uploaded content
     Type: String
     Default: itslog
+
   IamUploaderRoleName:
     Description: Role that can upload to logs and surveys directories
     Type: String
     Default: itslog-upload
+
   IamUploaderUsers:
     Description: List of IAM users that can upload to bucket.
     Type: CommaDelimitedList
+
   IamDownloaderRoleName:
     Description: Role that can list and download logs and surveys.
     Type: String
     Default: itslog-download
+
 
 Resources:
   UploadNotificationTopic:
@@ -30,6 +36,7 @@ Resources:
     Properties:
       DisplayName: ITS-LOG Upload Notification
       FifoTopic: False
+
   UploadNotificationMail:
     Type: AWS::SNS::Subscription
     Properties:
@@ -42,16 +49,16 @@ Resources:
   UploadEventHandlerRole:
     Type: AWS::IAM::Role
     Properties:
-      Description: Read-only access to bucket subdirectories and SNS topic
+      Description: Read-only access to bucket subdirectories and publish to SNS topic
       AssumeRolePolicyDocument:
-        Version: "2012-10-17"
+        Version: 2012-10-17
         Statement:
           - Effect: Allow
             Principal:
               Service:
                 - lambda.amazonaws.com
             Action:
-              - 'sts:AssumeRole'
+              - sts:AssumeRole
       Policies:
         - PolicyName: AllowSNS
           PolicyDocument:
@@ -63,16 +70,17 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 # Is this the right type of object?
-                # No, this is the log group for the Lambda.
-                # Need to generate a unique name and tie to the group instead.
+                # No, this is the CloudWatch log group for the Lambda.
+                # Consider a dedicated AWS:Logs::LogGroup and LogStream instead?
                 Resource: !Ref 'UploadNotificationTopic'
         - PolicyName: ReadFromLogsBucket
           PolicyDocument:
-            Version: "2012-10-17"
+            Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action: s3:GetObject
                 Resource: !Ref 'ItsLogBucket'
+  
   # UploadedLogHandler:
   #   Type: AWS::Lambda::Function
   #   Properties:
