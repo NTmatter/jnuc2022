@@ -31,6 +31,57 @@ Parameters:
 
 
 Resources:
+  # Backend bucket for incoming files.
+  ItsLogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Ref: LogBucketName
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: PruneOldLogs
+            Prefix: !Sub
+              - '${Prefix}/logs/'
+              - Prefix: !Ref LogBucketPrefix
+            Status: Enabled
+            ExpirationInDays: 7
+            NoncurrentVersionExpirationInDays: 1
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+          - Id: PruneOldSurveys
+            Prefix: !Sub
+              - '${Prefix}/surveys/'
+              - Prefix: !Ref LogBucketPrefix
+            Status: Enabled
+            ExpirationInDays: 7
+            NoncurrentVersionExpirationInDays: 1
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      # This needs to be moved into a patch.
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Function: !GetAtt UploadedLogHandler.Arn
+            Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: !Sub '${LogBucketPrefix}/logs/'
+          - Function: !GetAtt UploadedLogHandler.Arn
+            Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: !Sub '${LogBucketPrefix}/surveys/'
+  
+  # Pub/Sub Topic for upload notifications
   UploadNotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
@@ -48,7 +99,7 @@ Resources:
       TopicArn: !Ref 'UploadNotificationTopic'
 
   # Role for Lambda event handler
-  # TODO Need a random unique name https://stackoverflow.com/q/54897459
+  # TODO Need a random unique name derived from Stack ID https://stackoverflow.com/q/54897459
   UploadEventHandlerRole:
     Type: AWS::IAM::Role
     Properties:
@@ -60,6 +111,7 @@ Resources:
             Principal:
               Service:
                 - lambda.amazonaws.com
+                - s3.amazonaws.com
             Action:
               - sts:AssumeRole
       Policies:
@@ -109,14 +161,17 @@ Resources:
               - Effect: Allow
                 Action: s3:GetObject
                 # Should constrain to the object prefix as well.
-                Resource: !GetAtt ItsLogBucket.Arn
+                Resource:
+                  - !Sub 'arn:aws:s3:::${LogBucketName}/${LogBucketPrefix}/logs/*'
+                  - !Sub 'arn:aws:s3:::${LogBucketName}/${LogBucketPrefix}/surveys/*'
   
+  # Publish an event to the SNS Topic, triggering an email to subscribers.
+  # Called when a file is uploaded to the Logs directory.
   UploadedLogHandler:
     Type: AWS::Lambda::Function
     Properties:
       Description: Trigger email notifications when Log Files are uploaded
       Runtime: nodejs16.x
-      # Role: !Ref 'UploadEventHandlerRole'
       Role: !GetAtt UploadEventHandlerRole.Arn
       Handler: index.handler
       Code:
@@ -176,6 +231,9 @@ Resources:
             };
           - snsTopicARN: !Ref 'UploadNotificationTopic'
 
+
+  # Publish an event to the SNS Topic, triggering an email to subscribers.
+  # Called when a file is uploaded to the Surveys directory.
   UploadedSurveyHandler:
     Type: AWS::Lambda::Function
     Properties:
@@ -264,39 +322,6 @@ Resources:
                 });
             };
           - snsTopicARN: !Ref 'UploadNotificationTopic'
-
-  ItsLogBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName:
-        Ref: LogBucketName
-      # NotificationConfiguration:
-      AccessControl: Private
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: True
-        BlockPublicPolicy: True
-        IgnorePublicAcls: True
-        RestrictPublicBuckets: True
-      LifecycleConfiguration:
-        Rules:
-          - Id: PruneOldLogs
-            Prefix: !Sub
-              - '${Prefix}/logs/'
-              - Prefix: !Ref LogBucketPrefix
-            Status: Enabled
-            ExpirationInDays: 7
-            NoncurrentVersionExpirationInDays: 1
-            AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 1
-          - Id: PruneOldSurveys
-            Prefix: !Sub
-              - '${Prefix}/surveys/'
-              - Prefix: !Ref LogBucketPrefix
-            Status: Enabled
-            ExpirationInDays: 7
-            NoncurrentVersionExpirationInDays: 1
-            AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 1
 
 # TODO Create AWS::Lambda::EventSourceMapping to start responding to events.
 
