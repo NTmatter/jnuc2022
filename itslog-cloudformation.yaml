@@ -20,15 +20,6 @@ Parameters:
   #   Type: String
   #   Default: itslog-upload
 
-  # IamUploaderUsers:
-  #   Description: List of IAM users that can upload to bucket.
-  #   Type: CommaDelimitedList
-
-  # IamDownloaderRoleName:
-  #   Description: Role that can list and download logs and surveys.
-  #   Type: String
-  #   Default: itslog-download
-
 
 Resources:
   # Backend bucket for incoming files.
@@ -43,6 +34,10 @@ Resources:
         BlockPublicPolicy: True
         IgnorePublicAcls: True
         RestrictPublicBuckets: True
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
       LifecycleConfiguration:
         Rules:
           - Id: PruneOldLogs
@@ -73,7 +68,7 @@ Resources:
                 Rules:
                   - Name: prefix
                     Value: !Sub '${LogBucketPrefix}/logs/'
-          - Function: !GetAtt UploadedLogHandler.Arn
+          - Function: !GetAtt UploadedSurveyHandler.Arn
             Event: s3:ObjectCreated:*
             Filter:
               S3Key:
@@ -99,7 +94,7 @@ Resources:
       TopicArn: !Ref 'UploadNotificationTopic'
 
   # Role for Lambda event handler
-  # TODO Need a random unique name derived from Stack ID https://stackoverflow.com/q/54897459
+  # TODO Consider a random unique name derived from Stack ID https://stackoverflow.com/q/54897459
   UploadEventHandlerRole:
     Type: AWS::IAM::Role
     Properties:
@@ -122,9 +117,6 @@ Resources:
               - Effect: Allow
                 Action:
                   - sns:Publish
-                # Is this the right type of object?
-                # No, this is the CloudWatch log group for the Lambda.
-                # Consider a dedicated AWS:Logs::LogGroup and LogStream instead?
                 Resource: !Ref 'UploadNotificationTopic'
         - PolicyName: PerformLogging
           PolicyDocument:
@@ -133,27 +125,14 @@ Resources:
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
-                Resource: !Join
-                  - ''
-                  - - 'arn:aws:logs:'
-                    - !Ref 'AWS::Region'
-                    - ':'
-                    - !Ref 'AWS::AccountId'
-                    - ':*'
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
               - Effect: Allow
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Join
-                  - ''
-                  - - 'arn:aws:logs:'
-                    - !Ref 'AWS::Region'
-                    - ':'
-                    - !Ref 'AWS::AccountId'
-                    - ':log-group:/aws/lambda/'
-                    # Should be a ref to name of UploadedLogHandler Lambda
-                    - 'UploadedLogHandler'
-                    - ':*'
+                Resource: !Sub
+                  - 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${HandlerName}:*'
+                  - HandlerName: UploadedLogHandler
         - PolicyName: ReadFromLogsBucket
           PolicyDocument:
             Version: 2012-10-17
@@ -231,6 +210,16 @@ Resources:
             };
           - snsTopicARN: !Ref 'UploadNotificationTopic'
 
+  # Allow S3 to invoke the Uploaded Log Function in response to file creation events
+  # see https://aws.amazon.com/premiumsupport/knowledge-center/cloudformation-s3-notification-lambda/
+  InvokeUploadedLogHandler:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt UploadedLogHandler.Arn
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub 'arn:aws:s3:::${LogBucketName}'
 
   # Publish an event to the SNS Topic, triggering an email to subscribers.
   # Called when a file is uploaded to the Surveys directory.
@@ -239,7 +228,6 @@ Resources:
     Properties:
       Description: Trigger email notifications when Survey Files are uploaded
       Runtime: nodejs16.x
-      # Role: !Ref 'UploadEventHandlerRole'
       Role: !GetAtt UploadEventHandlerRole.Arn
       Handler: index.handler
       Code:
@@ -323,13 +311,20 @@ Resources:
             };
           - snsTopicARN: !Ref 'UploadNotificationTopic'
 
-# TODO Create AWS::Lambda::EventSourceMapping to start responding to events.
+  # Allow S3 to invoke the Uploaded Log Function in response to file creation events
+  # see https://aws.amazon.com/premiumsupport/knowledge-center/cloudformation-s3-notification-lambda/
+  InvokeUploadedSurveyHandler:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt UploadedSurveyHandler.Arn
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub 'arn:aws:s3:::${LogBucketName}'
 
-# IAM - Role
-# IAM - User
-# SNS
-# Lambda - Logs
-# Lambda - Surveys
+
+# TODO Uploader role
+# TODO Outputs: Bucket, Uploader Role
 
 # Reference Material
 # - [AWS CloudFormation Docs](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/)
