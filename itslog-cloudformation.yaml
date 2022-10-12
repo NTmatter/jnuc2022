@@ -15,11 +15,6 @@ Parameters:
     Type: String
     Default: itslog
 
-  # IamUploaderRoleName:
-  #   Description: Role that can upload to logs and surveys directories
-  #   Type: String
-  #   Default: itslog-upload
-
 
 Resources:
   # Backend bucket for incoming files.
@@ -322,9 +317,33 @@ Resources:
       SourceAccount: !Ref 'AWS::AccountId'
       SourceArn: !Sub 'arn:aws:s3:::${LogBucketName}'
 
+  ItsLogUpload:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Allows write-only upload to ITS-LOG logs and surveys.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:PutObjectAcl
+            Resource:
+              - !Sub 'arn:aws:s3:::${LogBucketName}/${LogBucketPrefix}/logs/*'
+              - !Sub 'arn:aws:s3:::${LogBucketName}/${LogBucketPrefix}/surveys/*'
+        
+    
+Outputs:
+  Logs:
+    Description: Log files are stored beneath this path
+    Value: !Sub 'https://${ItsLogBucket}.s3.${AWS::Region}.amazonaws.com/${LogBucketPrefix}/logs/'
+  Surveys:
+    Description: Survey files are stored beneath this path
+    Value: !Sub 'https://${ItsLogBucket}.s3.${AWS::Region}.amazonaws.com/${LogBucketPrefix}/surveys/'
+  UploaderPolicy:
+    Description: Attach this to your IAM Users to allow uploading logs and surveys.
+    Value: !Select [ 1, !Split [ /, !Ref ItsLogUpload ]]
 
-# TODO Uploader role
-# TODO Outputs: Bucket, Uploader Role
 
 # Reference Material
 # - [AWS CloudFormation Docs](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/)
