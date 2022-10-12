@@ -15,19 +15,19 @@ Parameters:
     Type: String
     Default: itslog
 
-  IamUploaderRoleName:
-    Description: Role that can upload to logs and surveys directories
-    Type: String
-    Default: itslog-upload
+  # IamUploaderRoleName:
+  #   Description: Role that can upload to logs and surveys directories
+  #   Type: String
+  #   Default: itslog-upload
 
-  IamUploaderUsers:
-    Description: List of IAM users that can upload to bucket.
-    Type: CommaDelimitedList
+  # IamUploaderUsers:
+  #   Description: List of IAM users that can upload to bucket.
+  #   Type: CommaDelimitedList
 
-  IamDownloaderRoleName:
-    Description: Role that can list and download logs and surveys.
-    Type: String
-    Default: itslog-download
+  # IamDownloaderRoleName:
+  #   Description: Role that can list and download logs and surveys.
+  #   Type: String
+  #   Default: itslog-download
 
 
 Resources:
@@ -37,6 +37,8 @@ Resources:
       DisplayName: ITS-LOG Upload Notification
       FifoTopic: False
 
+  # Subscribe the notification recipient to the topic.
+  # A confirmation email will arrive shortly after the resource is created.
   UploadNotificationMail:
     Type: AWS::SNS::Subscription
     Properties:
@@ -44,7 +46,8 @@ Resources:
         Ref: NotificationRecipient
       Protocol: email
       TopicArn: !Ref 'UploadNotificationTopic'
-  
+
+  # Role for Lambda event handler
   # TODO Need a random unique name https://stackoverflow.com/q/54897459
   UploadEventHandlerRole:
     Type: AWS::IAM::Role
@@ -60,91 +63,210 @@ Resources:
             Action:
               - sts:AssumeRole
       Policies:
-        - PolicyName: AllowSNS
+        - PolicyName: PublishToSns
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
-                  # Should we be able to create new streams?
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
+                  - sns:Publish
                 # Is this the right type of object?
                 # No, this is the CloudWatch log group for the Lambda.
                 # Consider a dedicated AWS:Logs::LogGroup and LogStream instead?
                 Resource: !Ref 'UploadNotificationTopic'
+        - PolicyName: PerformLogging
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                Resource: !Join
+                  - ''
+                  - - 'arn:aws:logs:'
+                    - !Ref 'AWS::Region'
+                    - ':'
+                    - !Ref 'AWS::AccountId'
+                    - ':*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Join
+                  - ''
+                  - - 'arn:aws:logs:'
+                    - !Ref 'AWS::Region'
+                    - ':'
+                    - !Ref 'AWS::AccountId'
+                    - ':log-group:/aws/lambda/'
+                    # Should be a ref to name of UploadedLogHandler Lambda
+                    - 'UploadedLogHandler'
+                    - ':*'
         - PolicyName: ReadFromLogsBucket
           PolicyDocument:
             Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action: s3:GetObject
-                Resource: !Ref 'ItsLogBucket'
+                # Should constrain to the object prefix as well.
+                Resource: !GetAtt ItsLogBucket.Arn
   
-  # UploadedLogHandler:
-  #   Type: AWS::Lambda::Function
-  #   Properties:
-  #     Description: Trigger email notifications when Log Files are uploaded
-  #     Runtime: nodejs16.x
-  #     Role: !Ref 'UploadEventHandlerRole'
-  #     Handler: index.handler
-  #     Code:
-  #       ZipFile: |
-  #         var util = require('util');
-  #         var AWS = require('aws-sdk');  
-  #         // AWS.config.region = 'us-east-1';
-  #         var snsTopicARN = "arn:aws:sns:us-east-1:607456343589:sysdiag-alerts";
+  UploadedLogHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Trigger email notifications when Log Files are uploaded
+      Runtime: nodejs16.x
+      # Role: !Ref 'UploadEventHandlerRole'
+      Role: !GetAtt UploadEventHandlerRole.Arn
+      Handler: index.handler
+      Code:
+        ZipFile: !Sub
+          - |
+            var util = require('util');
+            var AWS = require('aws-sdk');  
+            // AWS.config.region = 'us-east-1';
+            var snsTopicARN = "${snsTopicARN}";
 
-  #         exports.handler = function(event, context, callback) {
-  #           // Read options from the event.
-  #           console.log("Reading options from event:\n", util.inspect(event, {depth: 5}));
+            exports.handler = function(event, context, callback) {
+              // Read options from the event.
+              console.log("Reading options from event:\n", util.inspect(event, {depth: 5}));
 
-  #           var s3Event = event.Records[0];
+              var s3Event = event.Records[0];
 
-  #           var srcBucket = s3Event.s3.bucket.name;
-  #           var srcEvent = s3Event.eventName;
-  #           var time = s3Event.eventTime;
+              var srcBucket = s3Event.s3.bucket.name;
+              var srcEvent = s3Event.eventName;
+              var time = s3Event.eventTime;
 
-  #           var object = s3Event.s3.object.key;
-  #           var size = Math.round((s3Event.s3.object.size)/1048576);
+              var object = s3Event.s3.object.key;
+              var size = Math.round((s3Event.s3.object.size)/1048576);
 
-  #           // Regular speed bucket
-  #           var s3Url = "https://" + srcBucket + ".s3.amazonaws.com/" + object
-            
-  #           // S3 accelerate bucket
-  #           // var s3Url = "https://" + srcBucket + ".s3-accelerate.amazonaws.com/" + object
-  #           // Example URL: https://itslog-blammo-001.s3.amazonaws.com/itslog/logs/abcd1234.tar.gz
+              // Regular speed bucket
+              var s3Url = "https://" + srcBucket + ".s3.amazonaws.com/" + object
+              
+              // S3 accelerate bucket
+              // var s3Url = "https://" + srcBucket + ".s3-accelerate.amazonaws.com/" + object
+              // Example URL: https://itslog-blammo-001.s3.amazonaws.com/itslog/logs/abcd1234.tar.gz
 
-  #           var msg =   "ITS-LOG: a sysdiagnose file was just uploaded. \r\n\r\n" +
-  #                       "Bucket: " + srcBucket + "\r\n" + 
-  #                       "Event: " + srcEvent + "\r\n" +
-  #                       "Object: " + object + "\r\n" +
-  #                       "Size: " + size + " MB\r\n" +
-  #                       "Time: " + time + "\r\n" + 
-  #                       "URL: " + s3Url + "\r\n" ;
+              var msg =   "ITS-LOG: a sysdiagnose file was just uploaded. \r\n\r\n" +
+                          "Bucket: " + srcBucket + "\r\n" + 
+                          "Event: " + srcEvent + "\r\n" +
+                          "Object: " + object + "\r\n" +
+                          "Size: " + size + " MB\r\n" +
+                          "Time: " + time + "\r\n" + 
+                          "URL: " + s3Url + "\r\n" ;
 
-  #           var sns = new AWS.SNS();
+              var sns = new AWS.SNS();
 
-  #           sns.publish({
-  #               Subject: "ITS-LOG: Sysdiagnose Uploaded",
-  #               Message: msg,
-  #               TopicArn: snsTopicARN
-  #           }, 
-  #           function(err, data) {
-  #               if (err) {
-  #                   console.log(err.stack);
-  #                   return;
-  #               }
-  #               console.log(s3Event);
-  #               console.log('push sent');
-  #               console.log(s3Event);
-  #               console.log(msg);
-  #               context.done(null, 'Function Finished!');  
-  #           });
+              sns.publish({
+                  Subject: "ITS-LOG: Sysdiagnose Uploaded",
+                  Message: msg,
+                  TopicArn: snsTopicARN
+              }, 
+              function(err, data) {
+                  if (err) {
+                      console.log(err.stack);
+                      return;
+                  }
+                  console.log(s3Event);
+                  console.log('push sent');
+                  console.log(s3Event);
+                  console.log(msg);
+                  context.done(null, 'Function Finished!');  
+              });
+            };
+          - snsTopicARN: !Ref 'UploadNotificationTopic'
+
+  UploadedSurveyHandler:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Trigger email notifications when Survey Files are uploaded
+      Runtime: nodejs16.x
+      # Role: !Ref 'UploadEventHandlerRole'
+      Role: !GetAtt UploadEventHandlerRole.Arn
+      Handler: index.handler
+      Code:
+        ZipFile: !Sub
+          - |
+            // Source: https://stackoverflow.com/questions/30651502/how-to-get-contents-of-a-text-file-from-aws-s3-using-a-lambda-function
+            // The trigger for this function is the S3 bucket
+            // Event type: s3:ObjectCreated:*
+            // Prefix: itslog/surveys/
+
+            var util = require('util')
+            var AWS = require('aws-sdk');
+            var s3 = new AWS.S3();
+
+            // Added these two lines to identify the bucket and SNS topic
+            AWS.config.region = '${AWS::Region}';
+            var snsTopicARN = "${snsTopicARN}";
+
+            exports.handler = function(event, context, callback) {
+                
+                // Retrieve the bucket & key for the uploaded S3 object that
+                // caused this Lambda function to be triggered
+                var Bucket = event.Records[0].s3.bucket.name;
+                var Key = decodeURIComponent(event.Records[0].s3.object.key.replace(/\+/g, ' '));
+
+
+            // NOTE:
+            // Added these six lines
+
+                var s3Event = event.Records[0];
+                var srcBucket = s3Event.s3.bucket.name;
+                var srcEvent = s3Event.eventName;
+                var srcTime = s3Event.eventTime;
+                var srcObject = s3Event.s3.object.key;
+              
+                // Retrieve the object
+                s3.getObject({ Bucket, Key }, function(err, data) {
+                    if (err) {
+                        console.log(err, err.stack);
+                        callback(err);
+                    } else {
+
+            // NOTE: Added srcBody line
+                        var srcBody = data.Body.toString("ascii");
+
+                        console.log("Raw text:\n" + data.Body.toString('ascii'));
+                        callback(null, null);
+                    }
+                    
+                    // NOTE: Added these lines to construct the message 
+                    // and send the notification via SNS.
+
+                    var msg =   "ITS-LOG: a Survey Response was recorded. \r\n\r\n" +
+                                "Bucket: " + srcBucket + "\r\n" +
+                                "Filename: " + srcObject + "\r\n" +
+                                "Time Sent:" + srcTime + "\r\n" +
+                                "Survey responses: \r\n" +
+                                "---------------------------- \r\n" +
+                                srcBody;
+                              
+                    var sns = new AWS.SNS();
+                    
+                    sns.publish({
+                      Subject: "ITS-LOG: Survey Recorded",
+                      Message: msg,
+                      TopicArn: snsTopicARN
+                      },
+                      function(err, data) {
+                        if (err) {
+                          console.log(err.stack);
+                          return;
+                        }
+                      console.log(s3Event);
+                      console.log('push sent');
+                      console.log(s3Event);
+                      console.log(msg);
+                      context.done(null, 'Function Finished!');  
+                    });
+                      
+                });
+            };
+          - snsTopicARN: !Ref 'UploadNotificationTopic'
 
   ItsLogBucket:
     Type: AWS::S3::Bucket
-    Description: Stores incoming logs
     Properties:
       BucketName:
         Ref: LogBucketName
@@ -175,6 +297,8 @@ Resources:
             NoncurrentVersionExpirationInDays: 1
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 1
+
+# TODO Create AWS::Lambda::EventSourceMapping to start responding to events.
 
 # IAM - Role
 # IAM - User
